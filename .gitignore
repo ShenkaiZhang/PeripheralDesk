@@ -1,0 +1,19 @@
+# Local builds
+*.exe
+*.dll
+*.pdb
+*.zip
+bin/
+obj/
+.vs/
+*.user
+
+# Local settings, diagnostics and traces
+.env
+.env.*
+*.log
+*.etl
+*.dmp
+*.lnk
+Thumbs.db
+Desktop.ini
