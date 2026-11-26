@@ -15,4 +15,4 @@ Windows 10 / 11 x64。请从本仓库的 [Releases](../../releases) 下载 Windo
 ## 构建和验证
 - `Build.cmd` 使用本机 .NET Framework x64 C# 编译器生成 EXE。
 - `Test.cmd` 编译测试程序、运行自动检查和 WinForms 界面测试。`PeripheralDesk.Tests.exe --verify-windows` 可只读检查 Windows 设备枚举、默认设备和音量（不会切换设备或音量）。`Start.cmd --demo` 展示样例数据。
-- 包内文件说明见 [FILES.md](FILES.md)，第三方参考见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。项目本体尚未声明开源许可证；上游许可文件不适用于项目本体。
+- 包内文件说明见 [FILES.md](FILES.md)，第三方参考见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。项目本体采用 [MIT 许可证](LICENSE)；第三方内容仍按各自的许可条款使用。

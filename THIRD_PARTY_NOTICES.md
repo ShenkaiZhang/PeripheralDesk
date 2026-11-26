@@ -1,6 +1,6 @@
 ﻿# 第三方参考
 
-本文件说明仍在使用的协议与公开硬件标识，不为外设台本体指定许可证。品牌与产品名仅用来描述兼容性，不表示厂商背书。
+本文件说明仍在使用的协议与公开硬件标识，外设台本体的许可证见 [LICENSE](LICENSE)。品牌与产品名仅用来描述兼容性，不表示厂商背书。
 
 - [HaloBattery](https://github.com/HeyOkay/HaloBattery)：保留电量协议所需的部分雷蛇和 CompX 设备标识及接口信息，附上游 MIT 声明（LICENSE-HaloBattery.txt）。Windows 电量查询实现为本项目代码。
 - [Logitech HID++ 公开实现资料](https://github.com/pwr-Solaar/Solaar) 与 [LogicalRat](https://github.com/realAndi/LogicalRat#how-it-actually-works)：用于核对 HID++ 接收器标识、设备响应和传输方式。

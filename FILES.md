@@ -27,6 +27,7 @@
 | `FILES.md` | 本清单。 |
 | `RELEASE_NOTES.md` | v0.4.2 预览版发布说明。 |
 | `THIRD_PARTY_NOTICES.md` | 第三方参考及适用范围。 |
+| `LICENSE` | 外设台本体的 MIT 许可证。 |
 | `LICENSE-HaloBattery.txt` | HaloBattery 上游许可证，不是本项目许可证。 |
 | `.gitignore` | 防止构建产物、日志和本机设置误提交。 |
 
