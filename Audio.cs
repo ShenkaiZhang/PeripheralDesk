@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Runtime.InteropServices;
 
-internal static class Audio {
+internal static partial class Audio {
     [ComImport,Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class Enumerator {}
     [ComImport,InterfaceType(ComInterfaceType.InterfaceIsIUnknown),Guid("A95664D2-9614-4F35-A746-DE8DB63617E6")] interface IEnum {
         [PreserveSig] int EnumAudioEndpoints(int flow,uint state,out ICollection collection);

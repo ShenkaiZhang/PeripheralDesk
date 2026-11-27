@@ -10,10 +10,12 @@ using System.Windows.Forms;
 internal static class Program {
     [STAThread] static void Main(string[] args) {
         if(args.Contains("--self-test")) { SelfTest.Run(); return; }
-        if(args.Contains("--verify-ui")) { SelfTest.Ui(); return; }
+        if(args.Contains("--verify-ui")) { try{SelfTest.Ui();}catch(Exception e){Console.Error.WriteLine(e.GetType().FullName+": "+e.Message);Console.Error.WriteLine(e.StackTrace);Environment.ExitCode=1;} return; }
         if(args.Length==2 && args[0]=="--preview") { Application.EnableVisualStyles(); using(var panel=new Desk(true,true))panel.CapturePreview(args[1]); return; }
+        if(args.Length==2 && args[0]=="--mixer-preview") { Application.EnableVisualStyles(); using(var panel=new Desk(true,true))panel.CapturePreview(args[1],true); return; }
         if(args.Length==2 && args[0]=="--tray-preview"){Desk.CaptureTrayPreview(args[1]);return;}
         if(args.Contains("--verify-windows")) { SelfTest.Windows(); return; }
+        if(args.Contains("--verify-mixer-windows")) {try{Task.Run(()=>SelfTest.MixerWindows()).GetAwaiter().GetResult();}catch(Exception e){Console.Error.WriteLine(e.GetType().Name+": "+e.Message);Environment.ExitCode=1;}return;}
         using(var single=new Mutex(false,@"Local\PeripheralDesk.v1")) {
             if(!single.WaitOne(0)) {MessageBox.Show("外设台已运行，请在任务栏右侧打开。","外设台");return;}
             try {
@@ -37,6 +39,11 @@ internal sealed class Desk : Form {
     readonly System.Windows.Forms.Timer deviceTimer=new System.Windows.Forms.Timer(), audioTimer=new System.Windows.Forms.Timer();
     readonly VolumeRow output,input;
     readonly Label foot;
+    readonly MixerPanel mixer;
+    readonly Button devicesPage,appsPage;
+    bool showingMixer;
+    int deviceDeckHeight=68;
+    string deviceStatus="等待首次扫描";
     readonly bool demo, silent;
     bool busy, closing, anchored, audioBusy;
     List<Device> current=new List<Device>();
@@ -48,15 +55,15 @@ internal sealed class Desk : Form {
         StartPosition=FormStartPosition.Manual; anchored=!silent;
         BackColor=Design.Canvas;Font=Design.Font(9);ForeColor=Design.Ink;AutoScaleMode=AutoScaleMode.None;KeyPreview=true;
 
-        grid.Dock=DockStyle.Fill;grid.Padding=new Padding(15,11,15,10);grid.ColumnCount=1;grid.RowCount=9;grid.BackColor=Design.Canvas;
-        foreach(int h in new[]{49,28,68,29,32,32,60,60,26})grid.RowStyles.Add(new RowStyle(SizeType.Absolute,h));
+        grid.Dock=DockStyle.Fill;grid.Padding=new Padding(15,11,15,10);grid.ColumnCount=1;grid.RowCount=10;grid.BackColor=Design.Canvas;
+        foreach(int h in new[]{49,28,68,29,32,32,60,60,26,36})grid.RowStyles.Add(new RowStyle(SizeType.Absolute,h));
         Controls.Add(grid);
         var header=new Panel{Dock=DockStyle.Fill,Margin=Padding.Empty};
         var brand=new Panel{Bounds=new Rectangle(0,7,34,34)};
         brand.Paint+=(s,e)=>e.Graphics.DrawIcon(appIcon,new Rectangle(0,0,34,34));header.Controls.Add(brand);
         var title=new Label{Text="外设台",Font=Design.Font(15,true),Bounds=new Rectangle(43,3,145,27),TextAlign=ContentAlignment.MiddleLeft};header.Controls.Add(title);
         var kicker=new Label{Text="PERIPHERAL DESK",Font=new Font("Segoe UI",7.5f,FontStyle.Bold),ForeColor=Design.Muted,Bounds=new Rectangle(46,29,145,13)};header.Controls.Add(kicker);
-        refresh=Design.Button("↻",31,30);refresh.Bounds=new Rectangle(250,8,31,30);refresh.AccessibleName="立即扫描";refresh.Click+=async (s,e)=>await Reload();header.Controls.Add(refresh);
+        refresh=Design.Button("↻",31,30);refresh.Bounds=new Rectangle(250,8,31,30);refresh.AccessibleName="立即扫描";refresh.Click+=async (s,e)=>{if(showingMixer)await mixer.RefreshSessions();else await Reload();};header.Controls.Add(refresh);
         var more=Design.Button("···",31,30);more.Bounds=new Rectangle(289,8,31,30);more.AccessibleName="更多操作";header.Controls.Add(more);grid.Controls.Add(header,0,0);
 
         online=new Label{Text="已连接设备",Dock=DockStyle.Fill,ForeColor=Design.Muted,Font=Design.Font(8.5f,true),TextAlign=ContentAlignment.MiddleLeft,Margin=Padding.Empty};
@@ -72,6 +79,15 @@ internal sealed class Desk : Form {
         grid.Controls.Add(output,0,6);grid.Controls.Add(input,0,7);
         foot=new Label{Dock=DockStyle.Fill,ForeColor=Design.Muted,Font=Design.Font(8),TextAlign=ContentAlignment.MiddleLeft,Text="等待首次扫描",AutoEllipsis=true,Margin=Padding.Empty};
         grid.Controls.Add(foot,0,8);
+        mixer=new MixerPanel(demo){Visible=false};grid.Controls.Add(mixer,0,1);grid.SetRowSpan(mixer,7);
+        var navigation=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,Margin=Padding.Empty};
+        navigation.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));navigation.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        devicesPage=Design.Button("1 / 2  外设",150,30);appsPage=Design.Button("2 / 2  应用音量",150,30);
+        devicesPage.Dock=appsPage.Dock=DockStyle.Fill;devicesPage.Margin=new Padding(0,3,4,0);appsPage.Margin=new Padding(4,3,0,0);
+        devicesPage.Click+=(s,e)=>SelectPage(false);appsPage.Click+=(s,e)=>SelectPage(true);
+        navigation.Controls.Add(devicesPage,0,0);navigation.Controls.Add(appsPage,1,0);grid.Controls.Add(navigation,0,9);
+        SelectPage(false);
+        VisibleChanged+=(s,e)=>{if(!Visible)mixer.CancelPending();};
         tray.Icon=trayIcon;tray.Text="外设台";tray.Visible=!silent;tray.MouseClick+=(s,e)=>{if(e.Button==MouseButtons.Left)ToggleDesk();};
         var menu=new ContextMenuStrip();menu.Items.Add("打开外设台",null,(s,e)=>ShowDesk());
         menu.Items.Add("立即扫描",null,async (s,e)=>await Reload());
@@ -81,7 +97,7 @@ internal sealed class Desk : Form {
         menu.Items.Add("收起面板",null,(s,e)=>Hide());menu.Items.Add("退出外设台",null,(s,e)=>Exit());
         tray.ContextMenuStrip=menu;more.Click+=(s,e)=>menu.Show(more,0,more.Height);
         deviceTimer.Interval=30000;deviceTimer.Tick+=async (s,e)=>{await Reload();};
-        audioTimer.Interval=2500;audioTimer.Tick+=(s,e)=>{if(Visible)SyncSound();};
+        audioTimer.Interval=2500;audioTimer.Tick+=(s,e)=>{if(Visible&&!showingMixer)SyncSound();};
         if(!silent)Shown+=async (s,e)=>{SyncSound();deviceTimer.Start();audioTimer.Start();await Reload();};
         KeyDown+=(s,e)=>{if(e.KeyCode==Keys.Escape){Hide();e.Handled=true;}};
         SizeChanged+=(s,e)=>Design.RoundControl(this,17);
@@ -89,6 +105,29 @@ internal sealed class Desk : Form {
         Design.RoundControl(this,17);PlaceByTray();
     }
     void ToggleDesk(){if(Visible&&ContainsFocus)Hide();else ShowDesk();}
+    void SelectPage(bool apps){
+        showingMixer=apps;mixer.CancelPending();
+        grid.SuspendLayout();
+        foreach(Control control in grid.Controls){int row=grid.GetRow(control);if(row>=1&&row<=7&&control!=mixer)control.Visible=!apps;}
+        mixer.Visible=apps;
+        devicesPage.BackColor=apps?Design.BlueWash:Design.Accent;devicesPage.ForeColor=apps?Design.Accent:Color.White;
+        appsPage.BackColor=apps?Design.Accent:Design.BlueWash;appsPage.ForeColor=apps?Color.White:Design.Accent;
+        devicesPage.AccessibleDescription=apps?"切换到第一页":"当前页";appsPage.AccessibleDescription=apps?"当前页":"切换到第二页";
+        refresh.AccessibleName=apps?"刷新应用音量":"立即扫描";
+        foot.Text=apps?"音量实时同步 · 仅显示正在播放的应用":deviceStatus;
+        LayoutPage();grid.ResumeLayout();if(apps)RefreshMixer();
+    }
+    void LayoutPage(){
+        if(showingMixer&&grid.RowStyles[1].Height==0&&grid.RowStyles[2].Height>0)return;
+        int[] heights={28,deviceDeckHeight,29,32,32,60,60};
+        for(int i=1;i<=7;i++)grid.RowStyles[i].Height=showingMixer?0:heights[i-1];
+        if(showingMixer){
+            int limit=silent?450:Math.Max(180,Math.Min(450,Screen.FromPoint(Cursor.Position).WorkingArea.Height-160));
+            grid.RowStyles[2].Height=Math.Min(400,limit);
+        }
+        ResizePanel();
+    }
+    async void RefreshMixer(){await mixer.RefreshSessions();}
     void ShowDesk(){anchored=true;PlaceByTray();Show();Activate();SyncSound();}
     void PlaceByTray(){if(silent||!anchored)return;var a=Screen.FromPoint(Cursor.Position).WorkingArea;Location=new Point(a.Right-Width-13,a.Bottom-Height-12);}
     void ResizeTiles(){
@@ -126,6 +165,7 @@ internal sealed class Desk : Form {
     }
     string demoPlayback="demo-speaker",demoCapture="demo-mic";
     void SyncSound(){
+        if(showingMixer)RefreshMixer();
         if(audioBusy)return;
         SyncAudio(false);SyncAudio(true);
     }
@@ -208,9 +248,9 @@ internal sealed class Desk : Form {
                     cards.Controls.Add(new DeviceTile(d){Margin=new Padding(0,0,0,7)});
                 }
             }
-            var maxDeck=silent?330:Math.Max(100,Math.Min(296,Screen.FromPoint(Cursor.Position).WorkingArea.Height-342)); grid.RowStyles[2].Height=Math.Max(67,Math.Min(maxDeck,live.Count*69+live.Select(GroupOf).Distinct().Count()*28));
+            var maxDeck=silent?330:Math.Max(100,Math.Min(296,Screen.FromPoint(Cursor.Position).WorkingArea.Height-378)); deviceDeckHeight=Math.Max(67,Math.Min(maxDeck,live.Count*69+live.Select(GroupOf).Distinct().Count()*28));
         }finally{cards.ResumeLayout();}
-        ResizePanel();ResizeTiles();
+        LayoutPage();ResizeTiles();
     }
     internal bool VerifyDemoRouting(){
         if(!demo||!silent)return false;
@@ -226,10 +266,16 @@ internal sealed class Desk : Form {
         return sound.IsCompleted&&!sound.IsFaulted&&demoPlayback=="demo-headset"&&demoCapture=="demo-mic-usb"&&
             output.CurrentId=="demo-headset"&&input.CurrentId=="demo-mic-usb";
     }
-    internal void CapturePreview(string path) {
+    internal bool VerifyMixerPage(){
+        string playback=output.CurrentId,microphone=input.CurrentId;
+        SelectPage(true);bool ok=showingMixer&&!cards.Visible&&mixer.VerifyDemo();
+        SelectPage(false);return ok&&!showingMixer&&output.CurrentId==playback&&input.CurrentId==microphone;
+    }
+    internal void CapturePreview(string path,bool apps=false) {
         current=Demo();RenderCards();SyncSound();
         if(cards.Controls.OfType<DeviceTile>().Count()!=4)throw new InvalidOperationException("Demo card filter failed");
         foot.Text="示例数据    ·    每 30 秒刷新";
+        if(apps)SelectPage(true);
         Location=new Point(-20000,-20000);Show();Application.DoEvents();grid.PerformLayout();PerformLayout();ResizeTiles();
         using(var preview=new Bitmap(ClientSize.Width,ClientSize.Height)) {
             DrawToBitmap(preview,new Rectangle(Point.Empty,ClientSize));preview.Save(path,System.Drawing.Imaging.ImageFormat.Png);
@@ -275,16 +321,17 @@ internal sealed class Desk : Form {
     }
     async Task Reload() {
         if(busy||closing)return;
-        busy=true;refresh.Enabled=false;foot.Text="正在扫描设备…";
+        busy=true;refresh.Enabled=false;if(!showingMixer)foot.Text="正在扫描设备…";
         try {
             var result=await Task.Run(()=>Scan());
             if(closing||IsDisposed)return;
             current=result.Devices.OrderByDescending(d=>d.State=="已连接").ThenBy(d=>d.Link).ThenBy(d=>d.Name).ToList();
             RenderCards();
             UpdateTray();
-            foot.Text=(demo?"演示数据":("本次扫描 "+DateTime.Now.ToString("HH:mm")+" · 每 30 秒刷新"))+
+            deviceStatus=(demo?"演示数据":("本次扫描 "+DateTime.Now.ToString("HH:mm")+" · 每 30 秒刷新"))+
                 (result.Errors.Count>0?" · 部分数据未取得："+string.Join("；",result.Errors):" · 未知不等于没电");
-        } catch(Exception e){if(!closing)foot.Text="扫描失败："+e.Message;}
+            if(!showingMixer)foot.Text=deviceStatus;
+        } catch(Exception e){if(!closing&&!showingMixer)foot.Text="扫描失败："+e.Message;}
         finally {busy=false;if(!closing){refresh.Enabled=true;}}
     }
     void ResizePanel(){

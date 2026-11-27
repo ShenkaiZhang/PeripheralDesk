@@ -5,6 +5,7 @@
 *.zip
 bin/
 obj/
+dist/
 .vs/
 *.user
 

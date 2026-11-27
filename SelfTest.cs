@@ -9,13 +9,15 @@ internal static class SelfTest {
     }
     internal static void Ui() {
         System.Windows.Forms.Application.EnableVisualStyles();
+        using(var mixer=new MixerPanel(true))Check(mixer.VerifyStableUpdates(),"unchanged snapshots cause zero list layouts; volume updates reuse controls; paused row alone is removed");
             using(var ui=new Desk(true,true)) {
                 ui.PerformLayout();
                 Check(ui.VerifyDemoRouting(),"playback and recording selectors route independently and rebind their sliders");
                 Check(ui.Controls.Count==1,"desktop root layout");
                 var grid=(System.Windows.Forms.TableLayoutPanel)ui.Controls[0];
-                Check(grid.Controls.Count==9,"both audio selectors and volumes fit without a mouse adjustment row");
-                var deck=(System.Windows.Forms.FlowLayoutPanel)grid.GetControlFromPosition(0,2);
+                Check(grid.Controls.Count==11,"device controls, mixer and two-page navigation");
+                Check(ui.VerifyMixerPage(),"second page adjusts one application independently and returns to device controls");
+                var deck=grid.Controls.OfType<System.Windows.Forms.FlowLayoutPanel>().Single();
                 Check(deck.Controls.Count==1,"empty deck placeholder");
                 var sample=new[]{new Device{Id="on",State="已连接"},new Device{Id="off",State="未连接"},
                     new Device{Id="unknown",State="未取得在线状态"},new Device{Id="receiver",State="接收器已连接"}};
@@ -51,6 +53,7 @@ internal static class SelfTest {
         }
     }
     static void GroupAndAudioTests(){
+        MixerGroups();
         Check(NativeDevices.KindFromHidIds(new[]{"HID_DEVICE_UP:0001_U:0002","HID_DEVICE_SYSTEM_MOUSE"})=="mouse"&&
               NativeDevices.KindFromHidIds(new[]{"HID_DEVICE_SYSTEM_KEYBOARD"})=="keyboard"&&
               NativeDevices.KindFromHid(1,5)=="gamepad"&&NativeDevices.KindFromHid(12,1)==null,"standard USB categories do not imply battery capability");
@@ -67,6 +70,85 @@ internal static class SelfTest {
              new[]{new Audio.Endpoint{Id="mic",Name="USB microphone",State=1}});
         Check(devices.Count==4&&devices.Single(x=>x.Id=="bt").Battery==56&&Desk.GroupOf(devices.Single(x=>x.Id=="bt"))=="headphones"&&
              Desk.GroupOf(devices.Single(x=>x.Id=="audio:mic"))=="mic"&&Desk.VisibleDevices(devices).Count==3,"USB audio and microphone visible without duplicate wireless card or fake receiver");
+    }
+    static void MixerGroups(){
+        var sessions=new[]{
+            new Audio.Session{EndpointId="a",InstanceId="one",AppKey="browser",Name="Browser",Level=20,State=1},
+            new Audio.Session{EndpointId="a",InstanceId="two",AppKey="browser",Name="Browser",Level=60,Muted=true,State=0},
+            new Audio.Session{EndpointId="b",InstanceId="three",AppKey="browser",Name="Browser",Level=40,State=1},
+            new Audio.Session{EndpointId="a",InstanceId="four",AppKey="game",Name="Game",Level=80,State=1},
+            new Audio.Session{EndpointId="a",InstanceId="expired",AppKey="gone",Name="Gone",State=2}};
+        var groups=Audio.GroupSessions(sessions.Concat(new[]{sessions[0]}));
+        Check(groups.Count==2,"one row per application across output devices");
+        var browser=groups.Single(g=>g.Key=="browser");
+        Check(browser.Sessions.Count==2&&browser.Mixed&&browser.Level==40&&!browser.Muted&&browser.Playing&&browser.Sessions.All(s=>s.State==1),
+            "merge active streams only, dropping paused, expired and duplicate sessions");
+        Check(groups.Single(g=>g.Key=="game").Level==80,"unrelated applications retain their volume");
+        Check(Audio.GroupSessions(new[]{sessions[1]}).Count==0,"paused-only application is hidden");
+        Check(Audio.GroupSessions(new Audio.Session[0]).Count==0,"empty mixer has no fabricated applications");
+    }
+    // Integration test uses a silent stream owned by this test process only.
+    // It never sets another application's volume or the endpoint master volume.
+    internal static void MixerWindows(){
+        using(var stream=new MemoryStream()) {
+            var writer=new BinaryWriter(stream);int bytes=44100*2;
+            writer.Write(System.Text.Encoding.ASCII.GetBytes("RIFF"));writer.Write(36+bytes);
+            writer.Write(System.Text.Encoding.ASCII.GetBytes("WAVEfmt "));writer.Write(16);writer.Write((short)1);writer.Write((short)1);
+            writer.Write(44100);writer.Write(88200);writer.Write((short)2);writer.Write((short)16);
+            writer.Write(System.Text.Encoding.ASCII.GetBytes("data"));writer.Write(bytes);writer.Write(new byte[bytes]);writer.Flush();stream.Position=0;
+            using(var player=new System.Media.SoundPlayer(stream)) {
+                Audio.Session target=null;int original=0;bool muted=false;
+                Audio.SessionScan observed=null;
+                using(var notification=new System.Threading.AutoResetEvent(false))
+                using(var monitor=new Audio.SessionMonitor(scan=>{System.Threading.Interlocked.Exchange(ref observed,scan);notification.Set();})) {
+                try {
+                    Check(WaitFor(()=>observed!=null,notification,3000)&&observed.Unavailable==0,"notification monitor initializes before playback");
+                    var master=Audio.Access(false);player.Load();player.PlayLooping();
+                    uint pid=(uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+                    for(int i=0;i<40&&target==null;i++) {
+                        System.Threading.Thread.Sleep(100);
+                        target=Audio.ReadSessions().Sessions.FirstOrDefault(s=>s.ProcessId==pid&&s.State==1);
+                    }
+                    Check(target!=null,"live test stream appears after playback begins");
+                    original=target.Level;muted=target.Muted;
+                    Check(WaitFor(()=>observed.Sessions.Any(s=>s.Key==target.Key&&s.State==1),notification,2000),"new playing session notification arrives without periodic refresh");
+                    var before=Audio.ReadSessions();Check(before.Unavailable==0,"all active endpoints and sessions readable");
+                    Audio.SetSessions(new[]{target},37,true);
+                    var after=Audio.ReadSessions();var updated=after.Sessions.Single(s=>s.Key==target.Key);
+                    Check(updated.Level==37&&updated.Muted,"real ISimpleAudioVolume volume and mute write/readback");
+                    Check(WaitFor(()=>observed.Sessions.Any(s=>s.Key==target.Key&&s.Level==37&&s.Muted),notification,2000),"live volume and mute notification arrives within two seconds");
+                    Audio.SetSessions(new[]{target},0,false);
+                    updated=Audio.ReadSessions().Sessions.Single(s=>s.Key==target.Key);
+                    Check(updated.Level==0&&!updated.Muted,"zero volume and unmute are independent");
+                    Check(WaitFor(()=>observed.Sessions.Any(s=>s.Key==target.Key&&s.Level==0&&!s.Muted),notification,2000),"unmute and zero volume update through notifications");
+                    Audio.SetSessions(new[]{target},100,null);
+                    Check(Audio.ReadSessions().Sessions.Single(s=>s.Key==target.Key).Level==100,"100 percent boundary");
+                    var afterMaster=Audio.Access(false);
+                    Check(master.Id==afterMaster.Id&&master.Level==afterMaster.Level&&master.Muted==afterMaster.Muted,"master endpoint volume unchanged");
+                    var latest=Audio.ReadSessions();
+                    Check(before.Sessions.Where(s=>s.Key!=target.Key).All(s=>!latest.Sessions.Any(t=>t.Key==s.Key&&(t.Level!=s.Level||t.Muted!=s.Muted))),
+                        "other live application sessions unchanged");
+                    bool staleRejected=false;
+                    try{Audio.SetSessions(new[]{new Audio.Session{EndpointId=target.EndpointId,InstanceId="nonexistent-test-session"}},18,null);}
+                    catch(InvalidOperationException){staleRejected=true;}
+                    Check(staleRejected,"stale session identity rejected instead of changing a different app");
+                    int otherCount=before.Sessions.Count(s=>s.Key!=target.Key);
+                    Audio.SetSessions(new[]{target},original,muted);
+                    player.Stop();
+                    Check(WaitFor(()=>!Audio.GroupSessions(observed.Sessions).Any(g=>g.Sessions.Any(s=>s.Key==target.Key)),notification,2000),"stopped playback disappears through state notification");
+                    target=null;
+                    Console.WriteLine("PASS Windows mixer integration: "+passed+" checks; other sessions observed="+otherCount);
+                } finally {
+                    try{if(target!=null)Audio.SetSessions(new[]{target},original,muted);}finally{player.Stop();}
+                }
+                }
+            }
+        }
+    }
+    static bool WaitFor(Func<bool> condition,System.Threading.WaitHandle signal,int milliseconds){
+        var timer=System.Diagnostics.Stopwatch.StartNew();
+        while(!condition()) {int remaining=milliseconds-(int)timer.ElapsedMilliseconds;if(remaining<=0)return false;signal.WaitOne(Math.Min(remaining,100));}
+        return true;
     }
 
     internal static void Run() {
