@@ -153,6 +153,7 @@ internal static class SelfTest {
 
     internal static void Run() {
         try {
+            LogitechRetryTests();
             GroupAndAudioTests();
             Check(Protocol.WindowsBattery(3,new byte[]{0})==0,"real zero");
             Check(Protocol.WindowsBattery(3,new byte[]{101})==null,"reject out of range");
@@ -230,5 +231,20 @@ internal static class SelfTest {
             cp[6]^=1;Check(CompxMouse.Parse(cp,17)==null,"reject corrupt CompX reply");
             Console.WriteLine("PASS "+passed+" protocol, devices and icon checks");
         } catch(Exception e) { Console.Error.WriteLine(e.Message);Environment.ExitCode=1; }
+    }
+    static void LogitechRetryTests(){
+        int attempts=0,pauses=0;var formats=new System.Collections.Generic.List<bool>();var valid=new byte[]{3,0,5};
+        var result=Logitech.RetryRead(shortReport=>{formats.Add(shortReport);return ++attempts==3?valid:null;},()=>true,true,()=>pauses++);
+        Check(object.ReferenceEquals(result,valid)&&attempts==3&&pauses==2&&formats.SequenceEqual(new[]{true,false,true}),"HID++ delayed read succeeds after bounded short/long retries");
+        attempts=0;result=Logitech.RetryRead(shortReport=>{attempts++;return null;},()=>false,true,()=>{});
+        Check(result==null&&attempts==1,"device rejection or I/O failure is not retried as a timeout");
+        attempts=0;result=Logitech.RetryRead(shortReport=>{attempts++;return null;},()=>true,false,()=>{});
+        Check(result==null&&attempts==4,"unresponsive device stops after four read attempts");
+        Check(Logitech.LiveName("PRO X 2",false,true)==null,"paired or cached model name alone never proves a mouse is online");
+        Check(Logitech.LiveName("",true,true)=="Logitech 鼠标"&&Logitech.LiveName("PRO X 2",true,true)=="PRO X 2","live mouse remains visible when its optional model name is temporarily unavailable");
+        Logitech.LiveName("PRO X 2",true,true,"test-receiver:1");
+        Check(Logitech.LiveName("",true,true,"test-receiver:1")=="PRO X 2"&&Logitech.LiveName("",false,true,"test-receiver:1")==null,
+            "previously read model name survives a failed name read but never supplies online status");
+        Check(Logitech.LiveName("",true,true,"other-receiver:1")=="Logitech 鼠标", "model-name fallback is isolated by receiver and slot");
     }
 }

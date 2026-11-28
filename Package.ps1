@@ -1,6 +1,6 @@
 param(
     [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$')]
-    [string]$Version='0.5.0-preview',
+    [string]$Version='0.5.1-preview',
     [string]$OutputDirectory=(Join-Path $PSScriptRoot 'dist'),
     [switch]$UseExistingBuild
 )
@@ -13,7 +13,7 @@ if(-not $UseExistingBuild){
 $output=[IO.Path]::GetFullPath($OutputDirectory)
 $stage=Join-Path $PSScriptRoot ('obj\package-staging-'+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $stage,$output -Force | Out-Null
-foreach($name in @('PeripheralDesk.exe','README.txt','RELEASE_NOTES.md','LICENSE-HaloBattery.txt','THIRD_PARTY_NOTICES.md')){
+foreach($name in @('PeripheralDesk.exe','README.txt','RELEASE_NOTES.md','GPW_FIX.md','VALIDATION.md','LICENSE-HaloBattery.txt','THIRD_PARTY_NOTICES.md')){
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $stage $name)
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'LICENSE') -Destination (Join-Path $stage 'LICENSE.txt')
@@ -23,7 +23,7 @@ Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive=[IO.Compression.ZipFile]::OpenRead($zip)
 try{
-    if($archive.Entries.Count -ne 6){throw 'Unexpected package entry count'}
+    if($archive.Entries.Count -ne 8){throw 'Unexpected package entry count'}
     $stream=$archive.GetEntry('PeripheralDesk.exe').Open()
     $sha=[Security.Cryptography.SHA256]::Create()
     try{$hash=[BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-','')}

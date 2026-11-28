@@ -30,7 +30,8 @@
 | `Tray-preview.png` | 演示图标截图。 |
 | `README.md` | 项目说明、运行、构建和兼容边界。 |
 | `README.txt` | 随 Windows 下载包分发的使用、升级、自启动与卸载说明。 |
-| `VALIDATION.md` | v0.5.0-preview 自动检查、真实 Windows 验证与证据边界。 |
+| `VALIDATION.md` | v0.5.1-preview 鼠标实测、自动检查及此前音频验证的证据边界。 |
+| `GPW_FIX.md` | PRO X 2 识别修复的原因、实现、验证与兼容范围。 |
 | `FILES.md` | 本清单。 |
 | `RELEASE_NOTES.md` | 当前版本说明及历史版本摘要。 |
 | `THIRD_PARTY_NOTICES.md` | 第三方参考及适用范围。 |
@@ -40,13 +41,15 @@
 
 ## Windows 下载包
 
-下载包包含以下六个文件，不包含源码、调试文件或本机数据：
+下载包包含以下八个文件，不包含源码、调试文件或本机数据：
 
 | 文件 | 用途 |
 | --- | --- |
 | `PeripheralDesk.exe` | Windows x64 可运行程序，未签名。 |
 | `README.txt` | 使用、升级、自启动与卸载说明。 |
 | `RELEASE_NOTES.md` | 本版功能、兼容边界及历史摘要。 |
+| `GPW_FIX.md` | PRO X 2 识别修复说明与复验步骤。 |
+| `VALIDATION.md` | 本版验证及历史音频测试记录，区分测试范围。 |
 | `LICENSE.txt` | 项目本体 MIT 许可证，由源码仓库的 `LICENSE` 复制。 |
 | `LICENSE-HaloBattery.txt` | HaloBattery 上游 MIT 声明。 |
 | `THIRD_PARTY_NOTICES.md` | 第三方参考和适用范围。 |

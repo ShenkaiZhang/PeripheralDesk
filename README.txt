@@ -1,5 +1,10 @@
-外设台 PeripheralDesk v0.5.0-preview
+外设台 PeripheralDesk v0.5.1-preview
 Windows 10 / 11 x64 预览版，未签名。
+
+本版更新
+修复 PRO X 2 无线鼠标读取超时或型号读取失败导致不显示的问题。
+增加有限重试；型号读取失败不再隐藏本次已确认在线的鼠标。
+名称缓存不证明在线，也不缓存电量。详见 GPW_FIX.md 和 VALIDATION.md。
 
 运行与升级
 1. 从旧版本的托盘右键菜单选择“退出外设台”。

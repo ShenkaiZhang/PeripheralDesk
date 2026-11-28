@@ -1,8 +1,10 @@
-# 外设台 · Peripheral Desk v0.5.0-preview
+# 外设台 · Peripheral Desk v0.5.1-preview
 
 Windows 10 / 11 x64。请从本仓库的 [Releases](../../releases) 下载 Windows ZIP，解压运行 **PeripheralDesk.exe**。不需要安装或联网。升级前请从旧版托盘菜单点「退出外设台」，再运行新版本。程序未签名，不会自行设置开机启动。
 
-[下载 v0.5.0-preview](https://github.com/ShenkaiZhang/PeripheralDesk/releases/tag/v0.5.0-preview) · [更新记录](RELEASE_NOTES.md) · [验证记录](VALIDATION.md)
+[下载 v0.5.1-preview](https://github.com/ShenkaiZhang/PeripheralDesk/releases/tag/v0.5.1-preview) · [更新记录](RELEASE_NOTES.md) · [验证记录](VALIDATION.md)
+
+本版修复 PRO X 2 无线鼠标因 HID++ 读取超时或型号读取失败而不显示的问题：增加有限重试，已确认在线的鼠标不会仅因型号暂时读不到而消失。名称缓存不参与在线判断，也不复用历史电量。已通过自动检查和无线连接读取验证，详情与兼容边界见 [鼠标修复说明](GPW_FIX.md)。
 
 ![外设台面板（演示数据）](Panel-preview.png)
 

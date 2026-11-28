@@ -15,6 +15,25 @@ internal sealed class Logitech : IDisposable {
     readonly SafeFileHandle shortHandle;
     string lastIo;
     int sequence=0;
+    static readonly Dictionary<string,string> names=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+    internal static byte[] RetryRead(Func<bool,byte[]> exchange,Func<bool> timedOut,bool hasShort,Action pause) {
+        for(int attempt=0;attempt<4;attempt++) {
+            if(attempt>0)pause();
+            var reply=exchange(hasShort&&attempt%2==0);
+            if(reply!=null||!timedOut())return reply;
+        }
+        return null;
+    }
+    internal static string LiveName(string reported,bool confirmed,bool mouse,string identity=null) {
+        if(!confirmed)return null;
+        if(identity!=null)lock(names){
+            if(!string.IsNullOrWhiteSpace(reported)){
+                if(names.Count>=128&&!names.ContainsKey(identity))names.Clear();
+                names[identity]=reported;
+            }else {string prior;if(names.TryGetValue(identity,out prior))return prior;}
+        }
+        return string.IsNullOrWhiteSpace(reported)?(mouse?"Logitech 鼠标":"Logitech 外设"):reported;
+    }
     Logitech(Device receiver) {
         if(!Protocol.IsLogitechEndpoint(receiver.Vendor,receiver.Product)||!NativeDevices.CorrectCollection(receiver.Path))
             throw new IOException("接收器接口未通过匹配");
@@ -29,13 +48,10 @@ internal sealed class Logitech : IDisposable {
     }
     public void Dispose() {if(shortStream!=null)shortStream.Dispose();if(shortHandle!=null)shortHandle.Dispose();stream.Dispose();handle.Dispose();}
     byte[] Query(byte slot,byte feature,byte fn,params byte[] args) {
-        if(shortStream!=null&&args.Length<=3){
-            var answer=Exchange(slot,feature,fn,true,args);
-            if(answer!=null)return answer;
-            // Only use this fallback for feature discovery, never for settings writes.
-            if(feature!=0||fn!=0||lastIo==null||!lastIo.StartsWith("未收到"))return null;
-        }
-        return Exchange(slot,feature,fn,false,args);
+        // This helper is used only by feature/name/battery reads. Never retry settings writes.
+        return RetryRead(shortReport=>Exchange(slot,feature,fn,shortReport,args),
+            ()=>lastIo!=null&&lastIo.StartsWith("未收到",StringComparison.Ordinal),
+            shortStream!=null&&args.Length<=3,()=>System.Threading.Thread.Sleep(80));
     }
     byte[] Exchange(byte slot,byte feature,byte fn,bool shortRequest,params byte[] args) {
         byte op=(byte)(fn*16+8+(sequence++%7));
@@ -45,7 +61,7 @@ internal sealed class Logitech : IDisposable {
         if(writer==null)return null;
         Task write=writer.WriteAsync(req,0,req.Length);
         if(!Wait(shortRequest?shortHandle:handle,write,220)){lastIo="发送失败";return null;}
-        byte[] result=ReadReply(stream,handle,20,slot,feature,op,shortStream==null?280:150);
+        byte[] result=ReadReply(stream,handle,20,slot,feature,op,350);
         if(result!=null||lastIo!=null)return result;
         if(shortStream!=null) {
             result=ReadReply(shortStream,shortHandle,7,slot,feature,op,130);
@@ -124,11 +140,12 @@ internal sealed class Logitech : IDisposable {
             bool ping=false;
             foreach(byte slot in slots) {
                 if(slot==255&&output.Count>0)break;
-                if(receiver.Product==0xc54d&&!ping)ping=transport.Ping(slot);
+                bool slotPing=receiver.Product==0xc54d&&transport.Ping(slot);
+                ping|=slotPing;
                 byte f=transport.Feature(slot,5);
-                if(f==0)continue;
-                string name=transport.DeviceName(slot,f);
-                if(string.IsNullOrWhiteSpace(name))continue;
+                if(f==0&&!slotPing)continue;
+                string reported=f==0?"":transport.DeviceName(slot,f);
+                string name=LiveName(reported,slotPing||f!=0,wired||receiver.Product==0xc54d,receiver.Id+":"+slot);
                 var d=new Device { Id=receiver.Id+":"+slot,Vendor=receiver.Vendor,Product=receiver.Product,
                     Name=name,KindHint=wired||receiver.Product==0xc54d?"mouse":null,Link=wired?"USB · Logitech":"2.4G · Logitech",State="已连接" };
                 byte battery=transport.Feature(slot,0x1004);
@@ -143,6 +160,7 @@ internal sealed class Logitech : IDisposable {
                     }
                 }
                 d.Note=d.Battery.HasValue?"已收到实时电量回复":"已连接；未取得可读的百分比";
+                if(string.IsNullOrWhiteSpace(reported))d.Note+="；型号本次未读出，使用此前读到的名称或通用名称；仅依据本次实时回复确认在线";
                 output.Add(d);
             }
             if(output.Count==0){
